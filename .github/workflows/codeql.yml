@@ -1,0 +1,64 @@
+name: "CodeQL Analysis"
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  schedule:
+    - cron: '43 19 * * 6'
+
+jobs:
+  analyze:
+    name: Analyze C/C++
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ "c-cpp" ]
+        build-mode: [ "manual" ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: manual
+
+    # -------------------------
+    # Manual build for C/C++
+    # -------------------------
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y \
+          libboost-dev libboost-filesystem-dev \
+          libconfig++-dev libsqlite3-dev ffmpeg git libjsoncpp-dev \
+          gcc-11 g++-11 cmake
+
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 \
+          --slave /usr/bin/g++ g++ /usr/bin/g++-11 \
+          --slave /usr/bin/gcov gcov /usr/bin/gcov-11
+
+    - name: Build project (single pass)
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release \
+              -DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON \
+              -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON
+
+        cmake --build build --config Release
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:c-cpp"

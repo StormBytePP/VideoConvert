@@ -7,15 +7,11 @@ on:
     branches: [ "master" ]
 
 env:
-  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
   SPECTRAL_DSN: ${{ secrets.SPECTRAL_DSN }}
 
 jobs:
   build:
-    # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
-    # You can convert this to a matrix build if you need cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: ubuntu-latest
 
     steps:
@@ -24,45 +20,53 @@ jobs:
     - name: Update system
       run: sudo apt update
     
-    - name: Install needed deps   
+    - name: Install needed deps
       run: sudo apt install -y libboost-dev libboost-filesystem-dev libconfig++-dev libsqlite3-dev ffmpeg git libjsoncpp-dev
       
     - name: Install GCC11
       shell: bash
-      run:  |
-          sudo apt install gcc-11 g++-11
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 --slave /usr/bin/g++ g++ /usr/bin/g++-11 --slave /usr/bin/gcov gcov /usr/bin/gcov-11
+      run: |
+        sudo apt install -y gcc-11 g++-11
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 \
+          --slave /usr/bin/g++ g++ /usr/bin/g++-11 \
+          --slave /usr/bin/gcov gcov /usr/bin/gcov-11
   
     - name: Configure CMake All ON
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON 
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON \
+            -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON
 
     - name: Build
-      # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
       
     - name: Configure CMake All OFF
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DENABLE_HEVC=OFF -DENABLE_AAC=OFF -DENABLE_FDKAAC=OFF -DENABLE_AC3=OFF -DENABLE_EAC3=OFF -DENABLE_OPUS=OFF 
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DENABLE_HEVC=OFF -DENABLE_AAC=OFF -DENABLE_FDKAAC=OFF \
+            -DENABLE_AC3=OFF -DENABLE_EAC3=OFF -DENABLE_OPUS=OFF
 
     - name: Build
-      # Build your program with the given configuration
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} 
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
-    #- name: Test
-    #  working-directory: ${{github.workspace}}/build
-    #  # Execute tests defined by the CMake configuration.  
-    #  # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-    #  run: ctest -C ${{env.BUILD_TYPE}}
   scan:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
+
+    - name: Update system
+      run: sudo apt update
+
+    - name: Install needed deps
+      run: sudo apt install -y libboost-dev libboost-filesystem-dev libconfig++-dev libsqlite3-dev ffmpeg git libjsoncpp-dev
+
+    - name: Install GCC11
+      run: |
+        sudo apt install -y gcc-11 g++-11
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 \
+          --slave /usr/bin/g++ g++ /usr/bin/g++-11 \
+          --slave /usr/bin/gcov gcov /usr/bin/gcov-11
+
     - name: Install and run Spectral CI
       uses: checkpointsw/spectral-github-action@v3
       with:
         spectral-dsn: ${{ env.SPECTRAL_DSN }}
-        spectral-args: scan --ok  --include-tags base,audit3
-      
+        spectral-args: scan --ok --include-tags base,audit3
