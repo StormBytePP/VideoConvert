@@ -10,55 +10,76 @@ on:
 
 jobs:
   analyze:
-    name: Analyze C/C++
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
 
     permissions:
       security-events: write
       packages: read
-      actions: read
+      actions: write
       contents: read
 
     strategy:
       fail-fast: false
       matrix:
-        language: [ "c-cpp" ]
-        build-mode: [ "manual" ]
+        include:
+          - language: actions
+            build-mode: none
+          - language: c-cpp
+            build-mode: manual
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: stormbytepp/githubactions/.github/actions/checkout-cached@master
+        with:
+          fetch-depth: 0
+          submodules: recursive
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
-      with:
-        languages: ${{ matrix.language }}
-        build-mode: manual
+      - name: Install dependencies
+        if: matrix.language == 'c-cpp' && matrix.build-mode == 'manual'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libboost-dev \
+            libboost-filesystem-dev \
+            libconfig++-dev \
+            libsqlite3-dev \
+            ffmpeg \
+            git \
+            libjsoncpp-dev
 
-    # -------------------------
-    # Manual build for C/C++
-    # -------------------------
-    - name: Install dependencies
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y \
-          libboost-dev libboost-filesystem-dev \
-          libconfig++-dev libsqlite3-dev ffmpeg git libjsoncpp-dev \
-          gcc-11 g++-11 cmake
+      - name: Install toolchain
+        if: matrix.language == 'c-cpp' && matrix.build-mode == 'manual'
+        id: install-toolchain
+        uses: stormbytepp/githubactions/.github/actions/install-toolchain@master
+        with:
+          toolchain: clang
 
-        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 110 \
-          --slave /usr/bin/g++ g++ /usr/bin/g++-11 \
-          --slave /usr/bin/gcov gcov /usr/bin/gcov-11
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
 
-    - name: Build project (single pass)
-      run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release \
-              -DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON \
-              -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON
+      - name: Configure & Build (for CodeQL)
+        if: matrix.language == 'c-cpp' && matrix.build-mode == 'manual'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="${{ steps.install-toolchain.outputs.c_compiler }}" \
+            -DCMAKE_CXX_COMPILER="${{ steps.install-toolchain.outputs.cxx_compiler }}" \
+            -DENABLE_HEVC=ON \
+            -DENABLE_AAC=ON \
+            -DENABLE_FDKAAC=ON \
+            -DENABLE_AC3=ON \
+            -DENABLE_EAC3=ON \
+            -DENABLE_OPUS=ON
+          cmake --build build --parallel
 
-        cmake --build build --config Release
-
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: "/language:c-cpp"
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

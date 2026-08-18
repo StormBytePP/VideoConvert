@@ -1,0 +1,154 @@
+name: Compile & Test
+
+permissions:
+  actions: write
+  contents: read
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        features: [all-on, all-off]
+
+    name: linux-${{ matrix.compiler }}-${{ matrix.features }}
+
+    env:
+      LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib:${{ github.workspace }}/build/thirdparty/buildmaster/install/lib
+
+    steps:
+      - name: Checkout repository and submodules
+        uses: stormbytepp/githubactions/.github/actions/checkout-cached@master
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install dependencies
+        uses: stormbytepp/githubactions/.github/actions/install-cached@master
+        with:
+          packages: >-
+            libboost-dev
+            libboost-filesystem-dev
+            libconfig++-dev
+            libsqlite3-dev
+            ffmpeg
+            git
+            libjsoncpp-dev
+          cache-key: apt-media-deps
+
+      - name: Build with toolchain
+        uses: stormbytepp/githubactions/.github/actions/build-with-toolchain@master
+        with:
+          toolchain: ${{ matrix.compiler }}
+          ccache-key: v1-${{ matrix.compiler }}-${{ matrix.features }}
+          build-type: ${{ env.BUILD_TYPE }}
+          configure-options: >-
+            ${{ matrix.features == 'all-on' &&
+              '-DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON' ||
+              '-DENABLE_HEVC=OFF -DENABLE_AAC=OFF -DENABLE_FDKAAC=OFF -DENABLE_AC3=OFF -DENABLE_EAC3=OFF -DENABLE_OPUS=OFF' }}
+
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang]
+        features: [all-on, all-off]
+
+    name: macos-${{ matrix.compiler == 'clang' && 'clang-libc++' || matrix.compiler }}-${{ matrix.features }}
+
+    env:
+      DYLD_LIBRARY_PATH: ${{ github.workspace }}/build/lib:${{ github.workspace }}/build/thirdparty/buildmaster/install/lib
+
+    steps:
+      - name: Checkout repository and submodules
+        uses: stormbytepp/githubactions/.github/actions/checkout-cached@master
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install boost libconfig sqlite ffmpeg jsoncpp
+
+          # Compatibilidad con el #include <jsoncpp/json/json.h> del código antiguo
+          mkdir -p "$(brew --prefix)/include/jsoncpp"
+          ln -sf ../json "$(brew --prefix)/include/jsoncpp/json"
+
+      - name: Export Homebrew paths
+        id: brew
+        shell: bash
+        run: |
+          BREW_PREFIX=$(brew --prefix)
+          echo "prefix=${BREW_PREFIX}" >> $GITHUB_OUTPUT
+          echo "CMAKE_PREFIX_PATH=${BREW_PREFIX}" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${BREW_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/share/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L${BREW_PREFIX}/lib" >> $GITHUB_ENV
+
+      - name: Build with toolchain
+        uses: stormbytepp/githubactions/.github/actions/build-with-toolchain@master
+        with:
+          toolchain: ${{ matrix.compiler }}
+          ccache-key: v1-${{ matrix.compiler }}-${{ matrix.features }}
+          build-type: ${{ env.BUILD_TYPE }}
+          configure-options: >-
+            -DCMAKE_PREFIX_PATH=${{ steps.brew.outputs.prefix }}
+            -DCMAKE_CXX_FLAGS=-I${{ steps.brew.outputs.prefix }}/include
+            -DCMAKE_EXE_LINKER_FLAGS=-L${{ steps.brew.outputs.prefix }}/lib
+            -DCMAKE_SHARED_LINKER_FLAGS=-L${{ steps.brew.outputs.prefix }}/lib
+            ${{ matrix.features == 'all-on' &&
+              '-DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON' ||
+              '-DENABLE_HEVC=OFF -DENABLE_AAC=OFF -DENABLE_FDKAAC=OFF -DENABLE_AC3=OFF -DENABLE_EAC3=OFF -DENABLE_OPUS=OFF' }}
+
+#   build-windows:
+#     runs-on: windows-latest
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         features: [all-on, all-off]
+#
+#     name: windows-msvc-${{ matrix.features }}
+#
+#     steps:
+#       - name: Checkout repository and submodules
+#         uses: stormbytepp/githubactions/.github/actions/checkout-cached@master
+#         with:
+#           fetch-depth: 0
+#           submodules: recursive
+#
+#       - name: Install dependencies
+#         shell: pwsh
+#         run: |
+#           choco install ffmpeg sqlite -y
+#           # Boost / libconfig++ / jsoncpp normalmente se resuelven vía vcpkg o se bundlean.
+#
+#       - name: Add DLL directories to PATH
+#         shell: pwsh
+#         run: |
+#           echo "${{ github.workspace }}\build\lib" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+#           echo "${{ github.workspace }}\build\thirdparty\buildmaster\install\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+#
+#       - name: Build with toolchain
+#         uses: stormbytepp/githubactions/.github/actions/build-with-toolchain@master
+#         with:
+#           toolchain: msvc
+#           ccache-key: v1-msvc-${{ matrix.features }}
+#           build-type: ${{ env.BUILD_TYPE }}
+#           configure-options: >-
+#             ${{ matrix.features == 'all-on' &&
+#               '-DENABLE_HEVC=ON -DENABLE_AAC=ON -DENABLE_FDKAAC=ON -DENABLE_AC3=ON -DENABLE_EAC3=ON -DENABLE_OPUS=ON' ||
+#               '-DENABLE_HEVC=OFF -DENABLE_AAC=OFF -DENABLE_FDKAAC=OFF -DENABLE_AC3=OFF -DENABLE_EAC3=OFF -DENABLE_OPUS=OFF' }}
